@@ -11,8 +11,8 @@ COLE_MAC = '00:00:00:00:00:00'
 MONI_MAC = '11:11:11:11:11:11'
 TEST_MAC = '70:ef:00:4a:cf:1f'
 
-COLE_IP = '10.0.0.201'
-MONI_IP = '10.0.0.200'
+COLE_IP = '193.168.1.200'
+MONI_IP = '193.168.1.200'
 TEST_IP = '192.168.0.208'
 
 INTERFACE = 'wlx00c0ca97a345'
@@ -24,10 +24,10 @@ class Person():
         self.mac  = mac
         self.ip   = ip
         self.home = False
-        self.home_time   = -1
-        self.home_count  =  0
-        self.leave_time  = -1
-        self.leave_count =  0
+        self.home_time   = time.time()
+        self.home_count  = 0
+        self.leave_time  = time.time()
+        self.leave_count = 0
         self.timestamp   = time.time()
 
 class Status():
@@ -136,7 +136,7 @@ def main():
     #os.system('sudo ifconfig {} up'.format(INTERFACE))
 
     #members = [Person('Cole', COLE_MAC), Person('Monica', MONI_MAC)]
-    members = [Person('Danny', TEST_MAC, TEST_IP), Person('Monica', MONI_MAC, MONI_IP)]
+    members = [Person('Danny', TEST_MAC, TEST_IP)]
     status = Status()
 
     while True:
