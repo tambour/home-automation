@@ -4,19 +4,24 @@ Home automation using raspberry pi
 import os
 import sys
 import time
+import datetime
 import traceback
 import subprocess
 
-COLE_MAC = '00:00:00:00:00:00'
-MONI_MAC = '11:11:11:11:11:11'
-TEST_MAC = '70:ef:00:4a:cf:1f'
+PRINT_INTERVAL = 10
 
-COLE_IP = '193.168.1.200'
-MONI_IP = '193.168.1.200'
-TEST_IP = '192.168.0.208'
+COLE_MAC = '00:00:00:00:00:00'
+MONICA_MAC = '11:11:11:11:11:11'
+DANNY_MAC = '70:ef:00:4a:cf:1f'
+RACHEL_MAC = '04:4B:ED:56:E4:F3'
+
+COLE_IP   = '10.0.0.20'
+MONICA_IP = '10.0.0.10'
+RACHEL_IP = '10.0.0.8'
+DANNY_IP  = '10.0.0.5'
 
 INTERFACE = 'wlx00c0ca97a345'
-TIMEOUT = 120
+TIMEOUT = 300
 
 class Person():
     def __init__(self, name, mac, ip):
@@ -29,6 +34,7 @@ class Person():
         self.leave_time  = time.time()
         self.leave_count = 0
         self.timestamp   = time.time()
+        self.longest_idle = -1
 
 class Status():
     def __init__(self):
@@ -36,28 +42,39 @@ class Status():
         self.lights_on = False
         self.someone_home = False
         self.everyone_home = False
-        self.longest_idle = -1
+        self.last_print = -10
+
 
 def turn_on_lights(status):
     '''
     turn on the lights
     '''
-    print('lights on!')
+    event('[*] lights on!')
     status.lights_on = True
-    #proc = subprocess.Popen(['hue', 'lights', '3', 'on'], stdout=subprocess.PIPE)
-    #out, err = proc.communicate()
+
+    try:
+        proc = subprocess.Popen(['hue', 'lights', '3', 'on'], stdout=subprocess.PIPE)
+        out, err = proc.communicate()
+    except:
+        # wrong lights or not connected
+        pass
+
     return
 
 def turn_off_lights(status):
     '''
     turn off the lights
     '''
-    print('lights off!')
+    event('[*] lights off!')
     status.lights_on = False
-    #proc = subprocess.Popen(['hue', 'lights', '3', 'off'], stdout=subprocess.PIPE)
-    #out, err = proc.communicate()
-    return
+    try:
+        proc = subprocess.Popen(['hue', 'lights', '3', 'off'], stdout=subprocess.PIPE)
+        out, err = proc.communicate()
+    except:
+        # wrong lights or not connected
+        pass
 
+    return
 
 def detect_newcomer(members):
     '''
@@ -71,7 +88,7 @@ def detect_newcomer(members):
     #     for member in members:
     #         if (not member.home) and (member.mac in packet.summary()):
     #             # someone is home!
-    #             print('{} is home!'.format(member.name))
+    #             debug('{} is home!'.format(member.name))
     #             member.timestamp = time.time()
     #             member.home = True
     #             return member
@@ -87,7 +104,7 @@ def detect_newcomer(members):
                 member.home_count += 1
                 member.timestamp = time.time()
                 member.home_time = time.time()
-                print('{} is home! count: {}, duration: {}'.format(member.name, member.home_count, round(member.home_time - member.leave_time, 2)))
+                event('[*] {} is home! count: {}, duration: {}'.format(member.name, member.home_count, round(member.home_time - member.leave_time, 2)))
                 return member
 
     return None
@@ -104,13 +121,25 @@ def heartbeat(members):
                 # member responded to ping!
                 last_timestamp = member.timestamp
                 member.timestamp = time.time()
-                #print('pinged {}: {}'.format(member.name, round(member.timestamp - last_timestamp, 2)))
+                #debug('pinged {}: {}'.format(member.name, round(member.timestamp - last_timestamp, 2)))
 
 def darkness_comes():
     '''
     return true if the sun has set
     '''
     return True
+
+def debug(print_str):
+    print(print_str)
+    f = open('./out.txt', 'a')
+    f.write(print_str)
+    f.close()
+
+def event(event_str):
+    print(event_str)
+    f = open('./event.txt', 'a')
+    f.write('[{}]: {}\n'.format(datetime.datetime.now(), event_str))
+    f.close()
 
 def update(status, members):
     '''
@@ -136,11 +165,21 @@ def main():
     #os.system('sudo ifconfig {} up'.format(INTERFACE))
 
     #members = [Person('Cole', COLE_MAC), Person('Monica', MONI_MAC)]
-    members = [Person('Danny', TEST_MAC, TEST_IP)]
+    members = [Person('Waldo', DANNY_MAC, DANNY_IP), Person('Oat', MONICA_MAC, MONICA_IP), Person('Rachel', MONICA_MAC, RACHEL_IP)]
     status = Status()
 
     while True:
         try:
+
+            # print status
+            if time.time() - status.last_print > PRINT_INTERVAL:
+                status.last_print = time.time()
+                debug('\n')
+                for member in members:
+                    if (time.time() - member.timestamp) > member.longest_idle:
+                        member.longest_idle = round(time.time() - member.timestamp, 2)
+                    debug('{}:\n  home:    {}\n  latest:  {}\n  longest: {}\n'\
+                        .format(member.name, member.home, round(time.time() - member.timestamp, 2), member.longest_idle))
 
             # check for darkness
             status.dark = darkness_comes()
@@ -172,7 +211,7 @@ def main():
                             member.home = False
                             member.leave_count += 1
                             member.leave_time = time.time()
-                            print('{} has left! count: {}, duration: {}'.format(member.name, member.leave_count, round(member.leave_time - member.home_time, 2)))
+                            event('[*] {} has left! count: {}, duration: {}'.format(member.name, member.leave_count, round(member.leave_time - member.home_time, 2)))
                             update(status, members)
 
             # someone home
@@ -187,7 +226,7 @@ def main():
                             member.home = False
                             member.leave_count += 1
                             member.leave_time = time.time()
-                            print('{} has left! count: {}, duration: {}'.format(member.name, member.leave_count, round(member.leave_time - member.home_time, 2)))
+                            event('[*] {} has left! count: {}, duration: {}'.format(member.name, member.leave_count, round(member.leave_time - member.home_time, 2)))
                             update(status, members)
                             if not status.someone_home:
                                 # turn off lights if no one is home
@@ -198,22 +237,16 @@ def main():
                 if newcomer:
                     update(status, members)
 
-            for member in members:
-                print('{}: {}'.format(member.name, round(time.time() - member.timestamp, 2)))
-                if (time.time() - member.timestamp) > status.longest_idle:
-                    status.longest_idle = time.time() - member.timestamp
-
-            time.sleep(4)
+            time.sleep(0.1)
 
         except KeyboardInterrupt:
-            print('\n')
+            debug('\n')
             for member in members:
                 if member.home:
-                    print('{}: {}'.format(member.name, round(time.time() - member.timestamp, 2)))
-            print('Longest idle: {}'.format(round(status.longest_idle, 2)))
-            print('Sun down:  {}'.format(status.dark))
-            print('Lights on: {}'.format(status.lights_on))
-            print('\n')
+                    debug('{}: {}'.format(member.name, round(time.time() - member.timestamp, 2)))
+            debug('[*] Sun down:  {}'.format(status.dark))
+            debug('[*] Lights on: {}'.format(status.lights_on))
+            debug('\n')
             sys.exit(0)
 
         except:
