@@ -24,10 +24,10 @@ from astral import Astral
 # -2 for silence
 PRINT_INTERVAL = 4
 
-COAL_MAC   = '00:00:00:00:00:00'
+COAL_MAC   = 'a0:c9:a0:96:63:26'
 OAT_MAC    = '44:91:60:61:a4:94'
 WALDO_MAC  = '70:ef:00:4a:cf:1f'
-ZIPPER_MAC = '04:4B:ED:56:E4:F3'
+ZIPPER_MAC = '04:4b:ed:56:e4:f3'
 
 COAL_IP   = '10.0.0.20'
 OAT_IP    = '10.0.0.10'
