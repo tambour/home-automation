@@ -2,6 +2,13 @@
 
 '''
 Home automation using raspberry pi
+
+Turn on lights:
+    sun has set and first person home
+    [anyone home and sun sets]?
+
+Turn off lights:
+    lights on and last person leaves
 '''
 import os
 import sys
@@ -273,8 +280,11 @@ def main():
 
             # check for darkness
             if not status.sun_down and darkness_comes():
-                event('[*] Darkness comes!')
-                status.sun_down = True
+                # only set sun_down when no one is home
+                # prevents lights from turning on right at sunset
+                if not status.someone_home:
+                    event('[*] Darkness comes!')
+                    status.sun_down = True
             elif status.sun_down and not darkness_comes():
                 event('[*] Sun has risen!')
                 status.sun_down = False
