@@ -12,7 +12,10 @@ import traceback
 import subprocess
 from astral import Astral
 
-PRINT_INTERVAL = 10
+# interval for status print
+# -1 for events only
+# -2 for silence
+PRINT_INTERVAL = 4
 
 COAL_MAC   = '00:00:00:00:00:00'
 OAT_MAC    = '44:91:60:61:a4:94'
@@ -42,18 +45,18 @@ class Person():
 
 class Status():
     def __init__(self):
-        self.dark = False
+        self.sun_down = False
         self.lights_on = False
         self.someone_home = False
         self.everyone_home = False
-        self.last_print = -100
+        self.last_print = -1
         self.update = False
 
 def turn_on_lights(status):
     '''
     turn on the lights
     '''
-    event('[*] lights on!')
+    event('[*] Lights on!')
     status.lights_on = True
 
     try:
@@ -69,7 +72,7 @@ def turn_off_lights(status):
     '''
     turn off the lights
     '''
-    event('[*] lights off!')
+    event('[*] Lights off!')
     status.lights_on = False
     try:
         proc = subprocess.Popen(['hue', 'lights', '3', 'off'], stdout=subprocess.PIPE)
@@ -111,8 +114,10 @@ def detect_newcomers(status, members):
                 member.home_count += 1
                 member.timestamp = time.time()
                 member.home_time = time.time()
-                event('[*] {} is home!\tcount: {}, duration: {}'.format(member.name, member.home_count, round(member.home_time - member.leave_time, 2)))
+                event('[*] {} is home!'.format(member.name))
                 update(status, members)
+
+    return
 
     # ping all members
     for member in members:
@@ -125,7 +130,7 @@ def detect_newcomers(status, members):
                 member.home_count += 1
                 member.timestamp = time.time()
                 member.home_time = time.time()
-                event('[*] {} is home!\tcount: {}, duration: {}'.format(member.name, member.home_count, round(member.home_time - member.leave_time, 2)))
+                event('[*] {} is home!'.format(member.name))
 
 def detect_absence(status, members):
     '''
@@ -148,47 +153,57 @@ def detect_absence(status, members):
                 member.home = False
                 member.leave_count += 1
                 member.leave_time = time.time()
-                event('[*] {} has left! count: {}, duration: {}'.format(member.name, member.leave_count, round(member.leave_time - member.home_time, 2)))
+                event('[*] {} has left!'.format(member.name))
                 update(status, members)
             else:
                 member.timestamp = time.time()
 
 def darkness_comes():
     '''
-    return true if the sun has set
+    return true if the sun has set in Columbus
     '''
+
+    # always dark
+    #return True
+
     city_name = 'Columbus'
     a = Astral()
     a.solar_depression = 'civil'
     city = a[city_name]
     timezone = city.timezone
+
     sun_today = city.sun(date=datetime.datetime.now(), local=True)
     sunrise_today = sun_today['sunrise']
     sunset_today = sun_today['sunset']
+
     sun_tomorrow = city.sun(date=datetime.datetime.today() + datetime.timedelta(days=1), local=True)
     sunrise_tomorrow = sun_tomorrow['sunrise']
     sunset_tomorrow = sun_tomorrow['sunset']
+
     current_time = datetime.datetime.now(pytz.timezone('America/New_York'))
 
-    #print('today:\nsunrise: {}\nsunset: {}\n'.format(sunrise_today, sunset_today))
-    #print('tomorrow:\nsunrise: {}\nsunset: {}\n'.format(sunrise_tomorrow, sunset_tomorrow))
-    #print('current: {}'.format(current_time))
+    # print('today:\nsunrise: {}\nsunset: {}\n'.format(sunrise_today, sunset_today))
+    # print('tomorrow:\nsunrise: {}\nsunset: {}\n'.format(sunrise_tomorrow, sunset_tomorrow))
+    # print('current: {}'.format(current_time))
 
+    # dark means it's earlier than sunrise or later than sunset
     if (current_time < sunrise_today) or (current_time > sunset_today and current_time < sunrise_tomorrow):
-        # it's dark!
+        # sun is down!
         return True
     else:
-        # it's light!
+        # sun is up!
         return False
 
 def debug(print_str):
-    print(print_str)
+    if PRINT_INTERVAL != -1:
+        print(print_str)
     f = open('./out.txt', 'a')
     f.write(print_str+'\n')
     f.close()
 
 def event(event_str):
-    print(event_str)
+    if PRINT_INTERVAL != -2:
+        print(event_str)
     f = open('./event.txt', 'a')
     f.write('[{}]: {}\n'.format(datetime.datetime.now(), event_str))
     f.close()
@@ -212,19 +227,20 @@ def update(status, members):
 
 def print_status(status, members):
     '''
-    print member status
+    print status
     '''
-    debug('\n')
+    debug('[*] Sun Down: {}\n'.format(status.sun_down))
     for member in members:
-        if member.home_count > 0:
+        if member.home_count > 0: # only print for members who have been home
             if (time.time() - member.timestamp) > member.longest_idle:
                 member.longest_idle = round(time.time() - member.timestamp, 2)
+
             if member.home:
-                debug('{} [{}]:\n  home:     {}\n  count:    {}\n  duration: {}\n  ping:     {}\n'\
+                debug('[*] {} [{}]:\n    home:     {}\n    count:    {}\n    duration: {}\n    ping:     {}\n'\
                     .format(member.name, member.ip, member.home, member.home_count, \
                         round(time.time() - member.home_time, 2), round(time.time() - member.timestamp, 2)))
             else:
-                debug('{} [{}]:\n  home:     {}\n  count:    {}\n  duration: {}\n  ping:     {}\n'\
+                debug('[*] {} [{}]:\n    home:     {}\n    count:    {}\n    duration: {}\n    ping:     {}\n'\
                     .format(member.name, member.ip, member.home, member.leave_count, \
                         round(time.time() - member.leave_time, 2), round(time.time() - member.timestamp, 2)))
 
@@ -242,26 +258,26 @@ def main():
         except:
             pass
 
-    members = [Person('Waldo', WALDO_MAC, WALDO_IP), \
-               Person('COAL', COAL_MAC, COAL_IP), \
-               Person('Oat', OAT_MAC, OAT_IP), \
+    # instantiate member list
+    members = [Person('Waldo',  WALDO_MAC,  WALDO_IP), \
+               Person('COAL',   COAL_MAC,   COAL_IP), \
+               Person('Oat',    OAT_MAC,    OAT_IP), \
                Person('Zipper', ZIPPER_MAC, ZIPPER_IP)]
 
+    # set initial status
     status = Status()
-    status.dark = darkness_comes()
-    debug('\n[*] Sun Down: {}'.format(status.dark))
 
+    # loop forever
     while True:
         try:
 
-            # print status
-            if (time.time() - status.last_print > PRINT_INTERVAL) or status.update:
-                status.last_print = time.time()
-                status.update = False
-                print_status(status, members)
-
             # check for darkness
-            status.dark = darkness_comes()
+            if not status.sun_down and darkness_comes():
+                event('[*] Darkness comes!')
+                status.sun_down = True
+            elif status.sun_down and not darkness_comes():
+                event('[*] Sun has risen!')
+                status.sun_down = False
 
             # no one home
             if not status.someone_home:
@@ -272,13 +288,12 @@ def main():
 
                 # check for someone to arrive
                 detect_newcomers(status, members)
-                    
 
             # someone / everyone home
             else:
 
                 # turn on lights if they're off and it's dark
-                if status.dark and not status.lights_on:
+                if status.sun_down and not status.lights_on:
                     turn_on_lights(status)
 
                 # check for someone to leave
@@ -288,12 +303,19 @@ def main():
                     # check for someone to arrive
                     detect_newcomers(status, members)
 
-            # prevent tight loop
-            time.sleep(0.1)
+            # print status
+            if ((time.time() - status.last_print > PRINT_INTERVAL) or status.update) \
+                and PRINT_INTERVAL > -1:
+                status.last_print = time.time()
+                status.update = False
+                print_status(status, members)
+
+            # prevent stack trace tight loop
+            time.sleep(0.5)
 
         except KeyboardInterrupt:
             print_status(status, members)
-            debug('[*] Sun down:  {}'.format(status.dark))
+            debug('[*] Sun down:  {}'.format(status.sun_down))
             debug('[*] Lights on: {}'.format(status.lights_on))
             debug('\n')
             sys.exit(0)
