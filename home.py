@@ -138,7 +138,6 @@ def detect_newcomers(status, members):
                 event('[*] {} is home!'.format(member.name))
                 update(status, members)
 
-
 def detect_absence(status, members):
     '''
     check for member to leave
@@ -236,7 +235,9 @@ def print_status(status, members):
     '''
     print status
     '''
-    debug('[*] Sun Down: {}\n'.format(status.sun_down))
+    debug('\n')
+    debug('[*] Sun Down:  {}'.format(status.sun_down))
+    debug('[*] Lights on: {}\n'.format(status.lights_on))
     for member in members:
         if member.home_count > 0: # only print for members who have been home
             if (time.time() - member.timestamp) > member.longest_idle:
@@ -266,9 +267,9 @@ def main():
             pass
 
     # instantiate member list
-    members = [Person('Waldo',  WALDO_MAC,  WALDO_IP), \
-               Person('COAL',   COAL_MAC,   COAL_IP), \
+    members = [Person('Coal',   COAL_MAC,   COAL_IP), \
                Person('Oat',    OAT_MAC,    OAT_IP), \
+               Person('Waldo',  WALDO_MAC,  WALDO_IP), \
                Person('Zipper', ZIPPER_MAC, ZIPPER_IP)]
 
     # set initial status
