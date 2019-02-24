@@ -108,6 +108,20 @@ def detect_newcomers(status, members):
                     member.home = True
                     return member
 
+
+    # ping all members (populates arp table)
+    for member in members:
+        if not member.home:
+            proc = subprocess.Popen(['ping', member.ip, '-w', '2'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = proc.communicate()
+            if '0 received' not in out:
+                # member responded to ping!
+                member.home = True
+                member.home_count += 1
+                member.timestamp = time.time()
+                member.home_time = time.time()
+                event('[*] {} is home!'.format(member.name))
+
     # get arp table
     proc = subprocess.Popen(['arp', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
@@ -124,20 +138,6 @@ def detect_newcomers(status, members):
                 event('[*] {} is home!'.format(member.name))
                 update(status, members)
 
-    return
-
-    # ping all members
-    for member in members:
-        if not member.home:
-            proc = subprocess.Popen(['ping', member.ip, '-c', '1', '-w', '1'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            out, err = proc.communicate()
-            if '0 received' not in out:
-                # member responded to ping!
-                member.home = True
-                member.home_count += 1
-                member.timestamp = time.time()
-                member.home_time = time.time()
-                event('[*] {} is home!'.format(member.name))
 
 def detect_absence(status, members):
     '''
@@ -146,7 +146,7 @@ def detect_absence(status, members):
     # ping all present members
     for member in members:
         if member.home:
-            proc = subprocess.Popen(['ping', member.ip, '-c', '1', '-w', '1'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(['ping', member.ip, '-w', '2'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = proc.communicate()
             if '0 received' not in out:
                 member.timestamp = time.time()
