@@ -24,22 +24,31 @@ from astral import Astral
 # -2 for silence
 PRINT_INTERVAL = 4
 
-COAL_MAC   = 'a0:c9:a0:96:63:26'
-OAT_MAC    = '44:91:60:61:a4:94'
+# if true, act like sun is always set
+ALWAYS_DARK = True
+
 WALDO_MAC  = '70:ef:00:4a:cf:1f'
 ZIPPER_MAC = '04:4b:ed:56:e4:f3'
+OAT_MAC    = '00:9D:6B:2B:78:58'
+COAL_MAC   = 'a0:c9:a0:96:63:26'
 
-COAL_IP   = '10.0.0.20'
-OAT_IP    = '10.0.0.10'
 WALDO_IP  = '10.0.0.5'
 ZIPPER_IP = '10.0.0.8'
+OAT_IP    = '10.0.0.233'
+COAL_IP   = '10.0.0.234'
 
 INTERFACE = ''
 TIMEOUT = 10
 
+LIGHTS = ['10.0.0.2']
+
+NATURAL = '(255,103,23)'
+BLINK_DELAY = 0.2
+
 class Person():
-    def __init__(self, name, mac, ip):
+    def __init__(self, name, color, mac, ip):
         self.name = name
+        self.color = color
         self.mac  = mac
         self.ip   = ip
         self.home = False
@@ -65,13 +74,15 @@ def turn_on_lights(status):
     '''
     event('[*] Lights on!')
     status.lights_on = True
-
-    try:
-        proc = subprocess.Popen(['hue', 'lights', '3', 'on'], stdout=subprocess.PIPE)
-        out, err = proc.communicate()
-    except:
-        # wrong lights or not connected
-        pass
+    for light in LIGHTS:
+        try:
+            cmd = ['hue', 'lights', '2,3', 'on']
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            out, err = proc.communicate()
+        except:
+            # wrong lights or not connected
+            traceback.print_exc()
+            pass
 
     return
 
@@ -81,14 +92,48 @@ def turn_off_lights(status):
     '''
     event('[*] Lights off!')
     status.lights_on = False
-    try:
-        proc = subprocess.Popen(['hue', 'lights', '3', 'off'], stdout=subprocess.PIPE)
-        out, err = proc.communicate()
-    except:
-        # wrong lights or not connected
-        pass
+    for light in LIGHTS:
+        try:
+            cmd = ['hue', 'lights', '2,3', 'off']
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            out, err = proc.communicate()
+        except:
+            # wrong lights or not connected
+            traceback.print_exc()
 
     return
+
+def flash_lights(status, member):
+    '''
+    flash lights to member's color
+    '''
+
+    # only flash if lights are already on
+    if not status.lights_on:
+        return
+
+    for i in range(3):
+
+        for light in LIGHTS:
+            try:
+                cmd = ['hue', 'lights', '2,3', member.color]
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, err = proc.communicate()
+            except:
+                traceback.print_exc()
+
+        time.sleep(BLINK_DELAY)
+
+        for light in LIGHTS:
+            try:
+                cmd = ['hue', 'lights', '2,3', 'reset']
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, err = proc.communicate()
+            except:
+                traceback.print_exc()
+
+        time.sleep(BLINK_DELAY)
+
 
 def detect_newcomers(status, members):
     '''
@@ -121,15 +166,17 @@ def detect_newcomers(status, members):
                 member.timestamp = time.time()
                 member.home_time = time.time()
                 event('[*] {} is home!'.format(member.name))
+                update(status, members)
+                flash_lights(status, member)
 
     # get arp table
-    proc = subprocess.Popen(['arp', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(['/usr/sbin/arp', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
 
     # check if member in arp
     for member in members:
         if not member.home:
-            if member.mac.lower() in out:
+            if out and member.mac.lower() in out:
                 # member in arp table!!
                 member.home = True
                 member.home_count += 1
@@ -137,6 +184,7 @@ def detect_newcomers(status, members):
                 member.home_time = time.time()
                 event('[*] {} is home!'.format(member.name))
                 update(status, members)
+                flash_lights(status, member)
 
 def detect_absence(status, members):
     '''
@@ -150,7 +198,7 @@ def detect_absence(status, members):
             if '0 received' not in out:
                 member.timestamp = time.time()
 
-    proc = subprocess.Popen(['arp', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(['/usr/sbin/arp', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
     for member in members:
         if member.home:
@@ -169,8 +217,8 @@ def darkness_comes():
     return true if the sun has set in Columbus
     '''
 
-    # always dark
-    #return True
+    if ALWAYS_DARK:
+        return True
 
     city_name = 'Columbus'
     a = Astral()
@@ -267,10 +315,8 @@ def main():
             pass
 
     # instantiate member list
-    members = [Person('Coal',   COAL_MAC,   COAL_IP), \
-               Person('Oat',    OAT_MAC,    OAT_IP), \
-               Person('Waldo',  WALDO_MAC,  WALDO_IP), \
-               Person('Zipper', ZIPPER_MAC, ZIPPER_IP)]
+    members = [Person('Waldo',  'Blue',   WALDO_MAC,  WALDO_IP), \
+               Person('Zipper', 'Red',    ZIPPER_MAC, ZIPPER_IP)]
 
     # set initial status
     status = Status()
@@ -321,19 +367,20 @@ def main():
                 status.update = False
                 print_status(status, members)
 
-            # prevent stack trace tight loop
-            time.sleep(0.5)
-
         except KeyboardInterrupt:
             print_status(status, members)
             debug('[*] Sun down:  {}'.format(status.sun_down))
             debug('[*] Lights on: {}'.format(status.lights_on))
             debug('\n')
+            os.system('rm /tmp/running')
             sys.exit(0)
 
         except:
             traceback.print_exc()
+            time.sleep(1)
 
 
 if __name__ == '__main__':
+    os.system('touch /tmp/running')
+    #time.sleep(10)
     main()
