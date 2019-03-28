@@ -4,12 +4,12 @@
 Home automation using raspberry pi
 
 Turn on lights:
-    sun has set and first person home
-    [anyone home and sun sets]?
+    sun down and someone comes home
 
 Turn off lights:
     lights on and last person leaves
 '''
+
 import os
 import sys
 import time
@@ -17,6 +17,7 @@ import pytz
 import datetime
 import traceback
 import subprocess
+import configparser
 from astral import Astral
 
 # interval for status print
@@ -24,36 +25,35 @@ from astral import Astral
 # -2 for silence
 PRINT_INTERVAL = 4
 
-ALWAYS_DARK = True
+# set this to test during the day
+ALWAYS_DARK = False
 
-COAL_MAC   = 'a0:c9:a0:96:63:26'
-OAT_MAC    = '00:9D:6B:2B:78:58'
-WALDO_MAC  = '70:ef:00:4a:cf:1f'
-ZIPPER_MAC = '04:4b:ed:56:e4:f3'
-
-COAL_IP   = '192.168.0.8'
-OAT_IP    = '192.168.0.7'
-WALDO_IP  = '192.168.0.17'
-ZIPPER_IP = '192.168.1.200'
-
+# optional iface for sniffing
 INTERFACE = ''
-TIMEOUT = 10
+
+# delay between arrival blinks
+BLINK_DELAY = 0.2
+
+class Light():
+    NONE         = 0
+    PHILLIPS_HUE = 1
+    MAGIC_LIGHT  = 2
+
+# switch for choosing the right light cmd
+LIGHT_TYPE = Light.PHILLIPS_HUE
 
 # ESP_A06205: 192.168.0.9
 # ESP_A06006: 192.168.0.10
 # ESP_8D7677: 192.168.0.25
 # ESP_E57135: 192.168.0.26
 # ESP_8D85BB: 192.168.0.27
-# ESP_000000: 192.168.0.28
+# ESP_??????: 192.168.0.28
 LIGHTS = ['192.168.0.9', \
           '192.168.0.10', \
           '192.168.0.25', \
           '192.168.0.26', \
           '192.168.0.27', \
           '192.168.0.28']
-
-NATURAL = '(255,103,23)'
-BLINK_DELAY = 0.2
 
 class Person():
     def __init__(self, name, color, mac, ip):
@@ -67,7 +67,6 @@ class Person():
         self.leave_time  = time.time()
         self.leave_count = 0
         self.timestamp   = time.time()
-        self.longest_idle = -1
 
 class Status():
     def __init__(self):
@@ -78,73 +77,100 @@ class Status():
         self.last_print = -1
         self.update = False
 
-def turn_on_lights(status):
+
+def turn_on_lights():
     '''
     turn on the lights
     '''
     event('[*] Lights on!')
-    status.lights_on = True
-    for light in LIGHTS:
-        try:
-            cmd = ['python', '-m', 'flux_led', light, '--on']
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            out, err = proc.communicate()
-        except:
-            # wrong lights or not connected
-            pass
+    try:
+        cmd = []
+        if LIGHT_TYPE == Light.PHILLIPS_HUE:
+            cmd = ['hue', 'lights', '1,2,3,5', 'on']
+
+        elif LIGHT_TYPE == Light.MAGIC_LIGHT:
+            cmd = ['python', '-m', 'flux_led']
+            for light in LIGHTS:
+                cmd.append(light)
+            cmd.append('--on')
+
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        out, err = proc.communicate()
+
+    except:
+        # wrong lights or not connected
+        traceback.print_exc()
+        pass
 
     return
 
-def turn_off_lights(status):
+
+def turn_off_lights():
     '''
     turn off the lights
     '''
     event('[*] Lights off!')
-    status.lights_on = False
-    for light in LIGHTS:
-        try:
-            cmd = ['python', '-m', 'flux_led', light, '--off']
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            out, err = proc.communicate()
-        except:
-            # wrong lights or not connected
-            traceback.print_exc()
+    try:
+        cmd = []
+        if LIGHT_TYPE == Light.PHILLIPS_HUE:
+            cmd = ['hue', 'lights', '1,2,3,5', 'off']
+
+        elif LIGHT_TYPE == Light.MAGIC_LIGHT:
+            cmd = ['python', '-m', 'flux_led']
+            for light in LIGHTS:
+                cmd.append(light)
+            cmd.append('--off')
+
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        out, err = proc.communicate()
+
+    except:
+        # wrong lights or not connected
+        traceback.print_exc()
 
     return
+
 
 def flash_lights(status, member):
     '''
     flash lights to member's color
     '''
 
-    if not status.someone_home:
+    # only flash if lights are already on
+    if not status.lights_on:
         return
 
     for i in range(3):
-
         try:
-            cmd = ['python', '-m', 'flux_led']
-            for light in LIGHTS:
-                cmd.append(light)
-            cmd.extend(['-c', member.color])
+            cmd = []
+            if LIGHT_TYPE == Light.PHILLIPS_HUE:
+                cmd = ['hue', 'lights', '2,3', member.color]
+            elif LIGHT_TYPE == Light.MAGIC_LIGHT:
+                cmd = ['python', '-m', 'flux_led']
+                for light in LIGHTS:
+                    cmd.append(light)
+                cmd.extend(['-c', member.color])
+
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = proc.communicate()
-        except:
-            traceback.print_exc()
 
-        time.sleep(BLINK_DELAY)
+            time.sleep(BLINK_DELAY)
 
-        try:
-            cmd = ['python', '-m', 'flux_led']
-            for light in LIGHTS:
-                cmd.append(light)
-            cmd.extend(['-w', '80'])
+            if LIGHT_TYPE == Light.PHILLIPS_HUE:
+                cmd = ['hue', 'lights', '2,3', 'reset']
+            elif LIGHT_TYPE == Light.MAGIC_LIGHT:
+                cmd = ['python', '-m', 'flux_led']
+                for light in LIGHTS:
+                    cmd.append(light)
+                cmd.extend(['-w', '80'])
+
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = proc.communicate()
+
+            time.sleep(BLINK_DELAY)
+
         except:
             traceback.print_exc()
-
-        time.sleep(BLINK_DELAY)
 
 
 def detect_newcomers(status, members):
@@ -152,7 +178,7 @@ def detect_newcomers(status, members):
     ping devices and update member status
     '''
 
-    if False and INTERFACE != '':
+    if INTERFACE != '':
         packets = sniff(timeout=2, iface=INTERFACE)
 
         # check for MAC
@@ -178,8 +204,8 @@ def detect_newcomers(status, members):
                 member.timestamp = time.time()
                 member.home_time = time.time()
                 event('[*] {} is home!'.format(member.name))
-                flash_lights(status, member)
                 update(status, members)
+                flash_lights(status, member)
 
     # get arp table
     proc = subprocess.Popen(['/usr/sbin/arp', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -195,8 +221,9 @@ def detect_newcomers(status, members):
                 member.timestamp = time.time()
                 member.home_time = time.time()
                 event('[*] {} is home!'.format(member.name))
-                flash_lights(status, member)
                 update(status, members)
+                flash_lights(status, member)
+
 
 def detect_absence(status, members):
     '''
@@ -214,7 +241,7 @@ def detect_absence(status, members):
     out, err = proc.communicate()
     for member in members:
         if member.home:
-            if member.mac.lower() not in out: #and (time.time() - member.timestamp > TIMEOUT):
+            if member.mac.lower() not in out:
                 # member left
                 member.home = False
                 member.leave_count += 1
@@ -224,12 +251,12 @@ def detect_absence(status, members):
             else:
                 member.timestamp = time.time()
 
+
 def darkness_comes():
     '''
     return true if the sun has set in Columbus
     '''
 
-    # always dark
     if ALWAYS_DARK:
         return True
 
@@ -249,10 +276,6 @@ def darkness_comes():
 
     current_time = datetime.datetime.now(pytz.timezone('America/New_York'))
 
-    # print('today:\nsunrise: {}\nsunset: {}\n'.format(sunrise_today, sunset_today))
-    # print('tomorrow:\nsunrise: {}\nsunset: {}\n'.format(sunrise_tomorrow, sunset_tomorrow))
-    # print('current: {}'.format(current_time))
-
     # dark means it's earlier than sunrise or later than sunset
     if (current_time < sunrise_today) or (current_time > sunset_today and current_time < sunrise_tomorrow):
         # sun is down!
@@ -260,6 +283,7 @@ def darkness_comes():
     else:
         # sun is up!
         return False
+
 
 def debug(print_str):
     if PRINT_INTERVAL != -1:
@@ -292,6 +316,7 @@ def update(status, members):
     # flag that there is an updated status available
     status.update = True
 
+
 def print_status(status, members):
     '''
     print status
@@ -301,9 +326,6 @@ def print_status(status, members):
     debug('[*] Lights on: {}\n'.format(status.lights_on))
     for member in members:
         if member.home_count > 0: # only print for members who have been home
-            if (time.time() - member.timestamp) > member.longest_idle:
-                member.longest_idle = round(time.time() - member.timestamp, 2)
-
             if member.home:
                 debug('[*] {} [{}]:\n    home:     {}\n    count:    {}\n    duration: {}\n    ping:     {}\n'\
                     .format(member.name, member.ip, member.home, member.home_count, \
@@ -313,10 +335,8 @@ def print_status(status, members):
                     .format(member.name, member.ip, member.home, member.leave_count, \
                         round(time.time() - member.leave_time, 2), round(time.time() - member.timestamp, 2)))
 
+
 def main():
-    '''
-    main state machine
-    '''
 
     # change interface to monitor mode
     if INTERFACE != '':
@@ -327,11 +347,19 @@ def main():
         except:
             pass
 
-    # instantiate member list
-    members = [Person('Cole',   'Purple', COAL_MAC,   COAL_IP), \
-               Person('Oat',    'Purple', OAT_MAC,    OAT_IP), \
-               Person('Waldo',  'Blue',   WALDO_MAC,  WALDO_IP), \
-               Person('Zipper', 'Red',    ZIPPER_MAC, ZIPPER_IP)]
+
+    # read in config file
+    config = configparser.ConfigParser()
+    config.read('people.ini')
+
+    members = []
+    for person in config.sections():
+        members.append(\
+            Person(person, \
+                config[person]['Color'], \
+                config[person]['MAC'], \
+                config[person]['IP']))
+
 
     # set initial status
     status = Status()
@@ -356,7 +384,8 @@ def main():
 
                 # turn off lights if they're on
                 if status.lights_on:
-                    turn_off_lights(status)
+                    turn_off_lights()
+                    status.lights_on = False
 
                 # check for someone to arrive
                 detect_newcomers(status, members)
@@ -365,8 +394,9 @@ def main():
             else:
 
                 # turn on lights if they're off and it's dark
-                if status.sun_down and not status.lights_on:
-                    turn_on_lights(status)
+                if status.sun_down: #and not status.lights_on:
+                    turn_on_lights()
+                    status.lights_on = True
 
                 # check for someone to leave
                 detect_absence(status, members)
@@ -382,12 +412,11 @@ def main():
                 status.update = False
                 print_status(status, members)
 
+            time.sleep(1)
+
         except KeyboardInterrupt:
             print_status(status, members)
-            debug('[*] Sun down:  {}'.format(status.sun_down))
-            debug('[*] Lights on: {}'.format(status.lights_on))
             debug('\n')
-            os.system('rm /tmp/running')
             sys.exit(0)
 
         except:
@@ -396,6 +425,4 @@ def main():
 
 
 if __name__ == '__main__':
-    os.system('touch /tmp/running')
-    #time.sleep(10)
     main()
